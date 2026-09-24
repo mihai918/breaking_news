@@ -1,6 +1,7 @@
-import { z } from "zod";
-import { createMcpHandler } from "mcp-handler";
+import type { AuthInfo } from "@modelcontextprotocol/server";
+import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { z } from "zod";
 
 const AUTH0_DOMAIN = "https://dev-eybmwvxjb2csb7op.us.auth0.com";
 const AUDIENCE = "https://breakingnews-five.vercel.app";
@@ -10,131 +11,139 @@ const jwks = createRemoteJWKSet(
   new URL(`${AUTH0_DOMAIN}/.well-known/jwks.json`),
 );
 
-async function verifyAccessToken(request: Request) {
-  const authHeader = request.headers.get("authorization");
-
-  if (!authHeader?.startsWith("Bearer ")) {
-    throw new Error("missing_token");
-  }
-
-  const token = authHeader.slice("Bearer ".length);
-
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer: `${AUTH0_DOMAIN}/`,
-    audience: AUDIENCE,
-  });
-
-  const scope =
-    typeof payload.scope === "string"
-      ? payload.scope.split(" ")
-      : [];
-
-  if (!scope.includes(REQUIRED_SCOPE)) {
-    throw new Error("insufficient_scope");
-  }
-
-  return payload;
-}
-
-function authError(message: string) {
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: message,
-      },
-    ],
-    isError: true,
-    _meta: {
-      "mcp/www_authenticate": [
-        `Bearer resource_metadata="${AUDIENCE}/.well-known/oauth-protected-resource", scope="${REQUIRED_SCOPE}", error="insufficient_scope", error_description="${message}"`,
+const handler = createMcpHandler((server) => {
+  server.registerTool(
+    "health",
+    {
+      title: "Telegram Alert Health",
+      description: "Check whether the Telegram alert service is available.",
+      inputSchema: z.object({}),
+      securitySchemes: [
+        {
+          type: "oauth2",
+          scopes: [REQUIRED_SCOPE],
+        },
       ],
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
-  };
-}
+    async () => ({
+      content: [
+        {
+          type: "text",
+          text: "Telegram alert service is available.",
+        },
+      ],
+    }),
+  );
 
-const handler = createMcpHandler(
-  (server) => {
-    server.tool(
-      "health",
-      "Check whether the Telegram alert service is available.",
-      {},
-      async () => ({
+  server.registerTool(
+    "send_telegram",
+    {
+      title: "Send Telegram Breaking News",
+      description:
+        "Send an urgent breaking-news notification to the user's Telegram account.",
+      inputSchema: z.object({
+        text: z.string().min(1).max(4000),
+      }),
+      securitySchemes: [
+        {
+          type: "oauth2",
+          scopes: [REQUIRED_SCOPE],
+        },
+      ],
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ text }) => {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      const chatId = process.env.TELEGRAM_CHAT_ID;
+
+      if (!botToken || !chatId) {
+        throw new Error("Telegram environment variables are missing.");
+      }
+
+      const response = await fetch(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text,
+          }),
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error("Telegram delivery failed.");
+      }
+
+      return {
         content: [
           {
             type: "text",
-            text: "Telegram alert service is available.",
+            text: "Breaking-news alert sent successfully to Telegram.",
           },
         ],
-      }),
-    );
+      };
+    },
+  );
+});
 
-    server.tool(
-      "send_telegram",
-      "Send an urgent breaking-news notification to the user's Telegram account. Use only when a news event meets the user's urgent-alert criteria.",
-      {
-        text: z.string().min(1).max(4000),
-      },
-      async ({ text }, extra) => {
-        try {
-          const request = extra.requestInfo?.request;
+async function verifyToken(
+  _request: Request,
+  bearerToken?: string,
+): Promise<AuthInfo | undefined> {
+  if (!bearerToken) {
+    return undefined;
+  }
 
-          if (!request) {
-            return authError("Authentication required.");
-          }
+  try {
+    const { payload } = await jwtVerify(bearerToken, jwks, {
+      issuer: `${AUTH0_DOMAIN}/`,
+      audience: AUDIENCE,
+    });
 
-          await verifyAccessToken(request);
-        } catch (error) {
-          const message =
-            error instanceof Error && error.message === "insufficient_scope"
-              ? "The telegram:send permission is required."
-              : "Authentication required.";
+    const scopes =
+      typeof payload.scope === "string"
+        ? payload.scope.split(" ")
+        : [];
 
-          return authError(message);
-        }
+    if (!scopes.includes(REQUIRED_SCOPE)) {
+      return undefined;
+    }
 
-        const botToken = process.env.TELEGRAM_BOT_TOKEN;
-        const chatId = process.env.TELEGRAM_CHAT_ID;
+    return {
+      token: bearerToken,
+      scopes,
+      clientId:
+        typeof payload.sub === "string"
+          ? payload.sub
+          : "auth0-user",
+    };
+  } catch {
+    return undefined;
+  }
+}
 
-        if (!botToken || !chatId) {
-          throw new Error("Telegram environment variables are missing.");
-        }
+const authHandler = withMcpAuth(handler, verifyToken, {
+  required: true,
+  requiredScopes: [REQUIRED_SCOPE],
+  resourceMetadataPath: "/.well-known/oauth-protected-resource",
+});
 
-        const response = await fetch(
-          `https://api.telegram.org/bot${botToken}/sendMessage`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json; charset=utf-8",
-            },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text,
-            }),
-          },
-        );
-
-        const result = await response.json();
-
-        if (!response.ok || !result.ok) {
-          throw new Error("Telegram delivery failed.");
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Breaking-news alert sent successfully to Telegram.",
-            },
-          ],
-        };
-      },
-    );
-  },
-  {},
-  {
-    basePath: "/api",
-  },
-);
-
-export { handler as GET, handler as POST, handler as DELETE };
+export {
+  authHandler as GET,
+  authHandler as POST,
+};
