@@ -1,9 +1,17 @@
-export async function GET() {
-  return Response.json({
-    resource: "https://breakingnews-five.vercel.app",
-    authorization_servers: [
-      "https://dev-eybmwvxjb2csb7op.us.auth0.com",
-    ],
-    scopes_supported: ["telegram:send"],
-  });
-}
+import {
+  metadataCorsOptionsRequestHandler,
+  protectedResourceHandler,
+} from "mcp-handler";
+
+const handler = protectedResourceHandler({
+  authServerUrls: [
+    "https://dev-eybmwvxjb2csb7op.us.auth0.com",
+  ],
+});
+
+const corsHandler = metadataCorsOptionsRequestHandler();
+
+export {
+  handler as GET,
+  corsHandler as OPTIONS,
+};
