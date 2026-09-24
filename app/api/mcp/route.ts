@@ -18,12 +18,6 @@ const handler = createMcpHandler((server) => {
       title: "Telegram Alert Health",
       description: "Check whether the Telegram alert service is available.",
       inputSchema: z.object({}),
-      securitySchemes: [
-        {
-          type: "oauth2",
-          scopes: [REQUIRED_SCOPE],
-        },
-      ],
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -49,12 +43,6 @@ const handler = createMcpHandler((server) => {
       inputSchema: z.object({
         text: z.string().min(1).max(4000),
       }),
-      securitySchemes: [
-        {
-          type: "oauth2",
-          scopes: [REQUIRED_SCOPE],
-        },
-      ],
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -105,9 +93,7 @@ async function verifyToken(
   _request: Request,
   bearerToken?: string,
 ): Promise<AuthInfo | undefined> {
-  if (!bearerToken) {
-    return undefined;
-  }
+  if (!bearerToken) return undefined;
 
   try {
     const { payload } = await jwtVerify(bearerToken, jwks, {
