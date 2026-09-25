@@ -1,0 +1,40 @@
+name: Breaking News Real Story Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  real-news-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Find a real urgent story and send it automatically
+        env:
+          ALERT_SECRET: ${{ secrets.ALERT_SECRET }}
+          REAL_NEWS_TEST: "1"
+        run: node scripts/monitor-news.mjs
+
+      - name: Save alert history
+        run: |
+          if git diff --quiet -- data/breaking-news-state.json; then
+            echo "No state changes."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/breaking-news-state.json
+          git commit -m "Record real breaking news test"
+          git push
