@@ -177,6 +177,20 @@ const state = loadState();
 const sent = new Set(state.sent);
 const candidates = [];
 
+if (process.env.TEST_MODE === "1") {
+  candidates.push({
+    title: "TEST E2E — Alertă urgentă simulată pentru verificarea canalului",
+    link: "https://breakingnews-five.vercel.app",
+    pubDate: new Date().toUTCString(),
+    description:
+      "Acesta este un test controlat care trece prin același flux GitHub Actions → filtru → Vercel → Telegram.",
+    source: "Breaking News Monitor Test",
+    key: `test-${Date.now()}`,
+    score: 99,
+    feed: "E2E test",
+  });
+}
+
 for (const feed of feeds) {
   try {
     const response = await fetch(feed.url, {
