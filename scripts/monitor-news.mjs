@@ -133,7 +133,10 @@ function isRecent(item) {
   const when = Date.parse(item.pubDate);
   if (!Number.isFinite(when)) return false;
   const ageMs = Date.now() - when;
-  return ageMs >= -5 * 60_000 && ageMs <= 20 * 60_000;
+  const maxAgeMs = process.env.REAL_NEWS_TEST === "1"
+    ? 24 * 60 * 60_000
+    : 20 * 60_000;
+  return ageMs >= -5 * 60_000 && ageMs <= maxAgeMs;
 }
 
 function keyFor(item) {
@@ -212,7 +215,9 @@ for (const feed of feeds) {
       }
 
       const itemScore = score(item, feed.kind);
-      const threshold = feed.kind === "moldova" ? 4 : 5;
+      const threshold = process.env.REAL_NEWS_TEST === "1"
+        ? 1
+        : (feed.kind === "moldova" ? 4 : 5);
       if (itemScore < threshold) continue;
 
       const key = keyFor(item);
@@ -229,8 +234,12 @@ candidates.sort((a, b) => b.score - a.score);
 
 for (const item of candidates.slice(0, 3)) {
   const source = item.source || item.feed;
+  const header = process.env.REAL_NEWS_TEST === "1"
+    ? "🧪 TEST AUTOMAT CU ȘTIRE REALĂ"
+    : "🚨 ALERTĂ AUTOMATĂ";
+
   const message = [
-    "🚨 ALERTĂ AUTOMATĂ",
+    header,
     "",
     item.title,
     "",
